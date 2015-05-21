@@ -1,0 +1,67 @@
+@charset "utf-8";
+/* CSS Document */
+
+body {
+	font-family:Segoe, "Segoe UI", "DejaVu Sans", "Trebuchet MS", Verdana, sans-serif;
+	min-width:940px;	
+}
+
+.header {
+	width:100%;	
+}
+
+#popupPrompt {
+	position:absolute;
+	width:auto;
+	left:5%;
+	right:5%;
+	height:800px;
+	border: 1px solid #aaa;
+	background-color:#fff;	
+	z-index:100;
+	padding:20px;
+	display:none;
+}
+
+#popupTextArea {
+	width:50%;
+	height:100%;
+}
+
+#popupRight {
+	float:right;
+	width:45%;	
+}
+
+#popupQuestion {
+	padding-bottom:1em;	
+}
+
+.leftColumn {
+	width:45%;
+	float:left;	
+}
+
+.rightColumn {
+	width:45%;
+	float:right;	
+}
+
+.middleColumn {
+	width:8%;
+	float:left;	
+	margin:1%;
+	margin-top:0;
+}
+
+
+
+.footer {
+	clear:both;
+	padding-top:1em;	
+}
+
+#inputText, #outputText {
+	height:800px;
+	width:100%;	
+}

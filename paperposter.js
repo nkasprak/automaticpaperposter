@@ -1,0 +1,263 @@
+// JavaScript Document
+
+"use strict";
+
+CKEDITOR.replace("inputText", {height:800});
+CKEDITOR.replace("outputText", {height:800});
+
+$(document).ready(function() {
+	
+	(function() {
+	
+		var paperFormatter = function(inputs) {
+			var elementIndex, secondaryElementIndex;
+			var self = this;
+			this.actionIndex = 0;
+			this.subActionIndex = 0;
+			this.inputs = inputs;
+			this.halt = false;
+			var promptUserInput = function (questionHTML, displayHTML, callback) {
+				$("#popupTextArea").val(displayHTML);
+				$("#popupQuestion").html(questionHTML);
+				$("#popupPrompt").show();
+				self.halt = true;
+				$("#popupOK").click(function() {
+					var userInput = $("#popupInput").val();
+					callback(userInput);
+					$("#popupOK").off("click");
+					$("#popupTextArea").html("");
+					$("#popupQuestion").html("");
+					$("#popupPrompt").hide();
+					self.halt = false;
+					self.subActionIndex++;
+					self.resume();
+				});
+			};
+			this.actions = {
+				"deleteEmptyParagraphs" : function(d) {
+					d = d.replace(/\<(p|h[0-6])><br(\ \/)?>/g,function(match, $1, offset, original) {
+						return "<" + $1 + ">";
+					});
+					d = d.replace(/<br(\ \/)?>\<\/(p|h[0-6])>/g,function(match, $1, $2, offset, original) {
+						return "</" + $2 + ">";	
+					});
+					return d.replace(/\<p>&nbsp;<\/p>/g,"");
+				},
+				"stripDivs" : function(d) {
+					var tempDOM = $("<div>" + d + "</div>");
+					while (tempDOM.find("div").length > 0) {
+						tempDOM.find("div").eq(0).replaceWith(tempDOM.find("div").eq(0).html());
+					}
+					return tempDOM.html();
+				},
+				"guessAtHeaders" : function(d) {
+					var doReplace, a, p, tempDOM = $("<div>" + d + "</div>");
+					for (elementIndex = 0; elementIndex<tempDOM.find("p").length; elementIndex++) {
+						p = tempDOM.find("p").eq(elementIndex);
+						
+						//assume it's a header at first
+						doReplace = true;
+						
+						//check if it's a footnote by searching for links back to footnote references
+						for (var secondaryElementIndex = 0; secondaryElementIndex<p.find("a").length; secondaryElementIndex++) {
+							a = p.find("a").eq(secondaryElementIndex);
+							if (a.attr("href").indexOf("_ftnref") > -1) {
+								//if so, it's not a header
+								doReplace = false;	
+							}
+						}
+						
+						//if it's longer than 200 characters, it's probably not a header
+						if (p.text().length > 200) {
+							doReplace = false;
+						}
+						
+						//if it's inside a table, it's not a header
+						if (p.parents("table").length > 0) {
+							doReplace = false;	
+						}
+							
+						//if none of the previous conditions are true, it's probably a header	
+						if (doReplace) {
+							p.replaceWith("<h4>" + p.html() + "</h4>"); 
+							elementIndex--;	
+						}
+						
+					}
+					return tempDOM.html();
+				},
+				"fixFootnotes" : function(d) {
+					d = d.replace(/\<a href=\"\#\_ftn([0-9]*)\" .*?>.*?<\/a\>/g, '<sup><a href="#_ftn$1" name="_ftnref$1">[$1]</a></sup>');
+					d = d.replace(/\<a href=\"\#\_ftnref([0-9]*)\" .*?>.*?<\/a\>/g, '<sup><a href="#_ftnref$1" name="_ftn$1">[$1]</a></sup>');
+					return d;
+				},
+				"fixLists" : function(d) {
+					d = d.replace(/<\/(u|o)l>(\s)*?<(u|o)l>/g, "");
+					return d;
+				},
+				"removeImages" : function(d) {
+					var tempDOM = $("<div>" + d + "</div>");
+					var imgs = tempDOM.find("img"), img;
+					for (elementIndex = 0;elementIndex<imgs.length;elementIndex++) {
+						img = $(imgs[elementIndex]);
+						
+						if (img.parents("table").length > 0) {
+							img.parents("table").remove();	
+						} else {
+							img.remove();	
+						}
+					}
+					return tempDOM.html();
+				},
+				"fixTables" : function(d) {
+					if (typeof(self.tablesDOM) === "undefined") {
+						self.tablesDOM = $("<div>" + d + "</div>");
+					}
+					if (typeof(self.tables) === "undefined")  {
+						self.tables = self.tablesDOM.find("table");
+					}
+					
+					
+					if (elementIndex >= self.tables.length) {
+						
+						console.log("finished fixing all tables");
+						return self.tablesDOM.html();	
+					};
+					
+					var table = $(self.tables[elementIndex]);
+					switch (self.subActionIndex) {
+						case 0:	
+						promptUserInput("How Many Rows Should Be Moved FROM TBODY Into THEAD? (type DELETE to remove table)", $(table)[0].outerHTML, function(response) {
+							var tbody, thead, i, j, tr, tds;
+							thead = table.children("thead");
+							if (thead.length === 0) {
+								thead = $("<thead></thead>");
+								table.prepend(thead);
+							}
+							if (response === "DELETE") {
+								table.html("");
+								elementIndex++;
+							} else if (response > 0) {
+								for (i = 0;i<Math.min($(table).find("tr").length,response);i++) {
+									tr = table.find("tr").eq(i);
+									tds = tr.find("td");
+									for (j = 0; j<tds.length; j++) {
+										tds.eq(j).replaceWith("<th>" + tds.eq(j).html() + "</th>");
+									}
+									tr.detach();
+									thead.append(tr);
+								}
+							}
+						});
+						break;
+						case 1:
+						promptUserInput("How Many Rows Should Be Moved From TBODY Into TFOOT? (type DELETE to remove table)", table[0].outerHTML, function(response) {
+							var tbody, tfoot, i, j, tr, numtrs;
+							tfoot = table.children("tfoot");
+							if (tfoot.length === 0) {
+								tfoot = $("<tfoot></tfoot>");
+								table.append(tfoot);
+							}
+							numtrs = $(table).find("tr").length;
+							if (response > 0) {
+								for (i = numtrs - 1; i >= Math.max(0,numtrs - response);i--) {
+									console.log(i);
+									tr = table.find("tr").eq(i);
+									tr.detach();
+									tfoot.prepend(tr);
+								}
+							}
+						});
+						break;
+						
+						
+						default:
+						elementIndex++;
+						self.subActionIndex = 0;
+						return self.actions["fixTables"](d);
+						break;
+						
+					}
+					return self.tablesDOM.html();	
+				},
+				"postTables" : function(d) {
+					var tempDOM = $("<div>" + d + "</div>");
+					var tables = tempDOM.find("table");
+					var table;
+					
+					var classMapping = {
+						"left": "cellleft",
+						"center": "cellcenter",
+						"right": "cellright"	
+					}
+					
+					var ps, align, tds;
+					
+					for (var i = 0;i<tables.length;i++) {
+						table = $(tables[i]);
+						table.addClass("cbppTable");
+						table.wrap("<div class='tableContainer'></div>");
+						table.parents("div.tableContainer").first().prepend("<style scoped=\"scoped\">table.cbppTable th {font-size: 1.6rem;line-height: 2rem;}table.cbppTable tfoot td {font-size: 1.1rem;line-height: 1.2rem;}table.cbppTable .cellcenter {text-align: center;	}table.cbppTable .cellleft {text-align: left;}table.cbppTable .cellright {text-align: right;}</style>");
+
+						//strip p tags
+						ps = table.find("p");
+						for (var j = 0; j<ps.length;j++) {
+							align = $(ps[j]).attr("align");
+							if (typeof(classMapping[align] !== "undefined")) {
+								$(ps[j]).parents("td").first().addClass(classMapping[align]);
+								$(ps[j]).contents().unwrap();
+							}
+						}
+						
+						
+						
+						
+					}
+					//remove all attributes
+					tds = tempDOM.find("*");
+					console.log(tds);
+					for (var j = 0; j<tds.length;j++) {
+						$(tds[j]).removeAttr("nowrap");
+						$(tds[j]).removeAttr("style");
+						$(tds[j]).removeAttr("width");
+						$(tds[j]).removeAttr("valign");
+						$(tds[j]).removeAttr("align");
+						$(tds[j]).removeAttr("border");
+						$(tds[j]).removeAttr("cellspacing");
+						$(tds[j]).removeAttr("cellpadding");
+					}
+					return tempDOM.html();
+				}
+			},
+			this.performOperations = function(startAt) {
+				
+				for (self.actionIndex = startAt; self.actionIndex<inputs.length;self.actionIndex++) {
+					if ($(inputs[self.actionIndex]).attr("checked") === "checked") {
+						self.currentHTML = self.actions[$(inputs[self.actionIndex]).attr("id")](self.currentHTML);
+						if (self.halt === true) {
+							return;	
+						}
+					}
+					console.log("finished action " + self.actionIndex);
+					self.subActionIndex = 0;
+					elementIndex = 0;
+				}
+				CKEDITOR.instances["outputText"].setData(self.currentHTML);
+			}
+			this.resume = function() {
+				this.performOperations(this.actionIndex);
+			}
+		};
+	
+	
+	
+		$("#performOperations").click(function() {
+			var inputs = $(this).parents("div.middleColumn").find('input[type="checkbox"]');
+			var pF = new paperFormatter(inputs);
+			pF.currentHTML = CKEDITOR.instances["inputText"].getData();
+			pF.performOperations(0);
+			
+		});
+
+	}());
+});
