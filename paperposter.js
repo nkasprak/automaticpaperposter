@@ -1,16 +1,15 @@
 // JavaScript Document
 
-"use strict";
-
 CKEDITOR.replace("inputText", {height:800});
 CKEDITOR.replace("outputText", {height:800});
 
 $(document).ready(function() {
+	"use strict";
 	
 	(function() {
 	
 		var paperFormatter = function(inputs) {
-			var elementIndex, secondaryElementIndex;
+			var elementIndex;
 			var self = this;
 			this.actionIndex = 0;
 			this.subActionIndex = 0;
@@ -35,13 +34,13 @@ $(document).ready(function() {
 			};
 			this.actions = {
 				"deleteEmptyParagraphs" : function(d) {
-					d = d.replace(/\<(p|h[0-6])><br(\ \/)?>/g,function(match, $1, offset, original) {
+					d = d.replace(/<(p|h[0-6])><br(\ \/)?>/g,function(match, $1) {
 						return "<" + $1 + ">";
 					});
-					d = d.replace(/<br(\ \/)?>\<\/(p|h[0-6])>/g,function(match, $1, $2, offset, original) {
+					d = d.replace(/<br(\ \/)?><\/(p|h[0-6])>/g,function(match, $1, $2) {
 						return "</" + $2 + ">";	
 					});
-					return d.replace(/\<p>&nbsp;<\/p>/g,"");
+					return d.replace(/<p>&nbsp;<\/p>/g,"");
 				},
 				"stripDivs" : function(d) {
 					var tempDOM = $("<div>" + d + "</div>");
@@ -61,9 +60,12 @@ $(document).ready(function() {
 						//check if it's a footnote by searching for links back to footnote references
 						for (var secondaryElementIndex = 0; secondaryElementIndex<p.find("a").length; secondaryElementIndex++) {
 							a = p.find("a").eq(secondaryElementIndex);
-							if (a.attr("href").indexOf("_ftnref") > -1) {
-								//if so, it's not a header
-								doReplace = false;	
+							
+							if (typeof(a.attr("href")) !== "undefined") {
+								if (a.attr("href").indexOf("_ftnref") > -1) {
+									//if so, it's not a header
+									doReplace = false;	
+								}
 							}
 						}
 						
@@ -87,8 +89,8 @@ $(document).ready(function() {
 					return tempDOM.html();
 				},
 				"fixFootnotes" : function(d) {
-					d = d.replace(/\<a href=\"\#\_ftn([0-9]*)\" .*?>.*?<\/a\>/g, '<sup><a href="#_ftn$1" name="_ftnref$1">[$1]</a></sup>');
-					d = d.replace(/\<a href=\"\#\_ftnref([0-9]*)\" .*?>.*?<\/a\>/g, '<sup><a href="#_ftnref$1" name="_ftn$1">[$1]</a></sup>');
+					d = d.replace(/<a href=\"\#\_ftn([0-9]*)\" .*?>.*?<\/a\>/g, '<sup><a href="#_ftn$1" name="_ftnref$1">[$1]</a></sup>');
+					d = d.replace(/<a href=\"\#\_ftnref([0-9]*)\" .*?>.*?<\/a\>/g, '<sup><a href="#_ftnref$1" name="_ftn$1">[$1]</a></sup>');
 					return d;
 				},
 				"fixLists" : function(d) {
@@ -122,37 +124,46 @@ $(document).ready(function() {
 						
 						console.log("finished fixing all tables");
 						return self.tablesDOM.html();	
-					};
+					}
 					
 					var table = $(self.tables[elementIndex]);
+					if (table.hasClass("delete")) {	
+						self.subActionIndex = 2;
+					}
 					switch (self.subActionIndex) {
-						case 0:	
+						case 0:
+						
 						promptUserInput("How Many Rows Should Be Moved FROM TBODY Into THEAD? (type DELETE to remove table)", $(table)[0].outerHTML, function(response) {
-							var tbody, thead, i, j, tr, tds;
+							var thead, i, j, tr, tds;
 							thead = table.children("thead");
 							if (thead.length === 0) {
 								thead = $("<thead></thead>");
 								table.prepend(thead);
 							}
 							if (response === "DELETE") {
-								table.html("");
-								elementIndex++;
+								table.addClass("delete");
 							} else if (response > 0) {
 								for (i = 0;i<Math.min($(table).find("tr").length,response);i++) {
 									tr = table.find("tr").eq(i);
 									tds = tr.find("td");
 									for (j = 0; j<tds.length; j++) {
-										tds.eq(j).replaceWith("<th>" + tds.eq(j).html() + "</th>");
+										var colspan = 1;
+										if (tds.eq(j).attr("colspan")) {
+											colspan = tds.eq(j).attr("colspan");
+										}
+										tds.eq(j).replaceWith("<th" + (colspan===1 ? "" : (' colspan="' + colspan + '"')) + ">" + tds.eq(j).html() + "</th>");
 									}
 									tr.detach();
 									thead.append(tr);
 								}
 							}
 						});
+						
 						break;
 						case 1:
-						promptUserInput("How Many Rows Should Be Moved From TBODY Into TFOOT? (type DELETE to remove table)", table[0].outerHTML, function(response) {
-							var tbody, tfoot, i, j, tr, numtrs;
+						
+						promptUserInput("How Many Rows Should Be Moved From TBODY into footer area?", table[0].outerHTML, function(response) {
+							var tfoot, i, tr, numtrs;
 							tfoot = table.children("tfoot");
 							if (tfoot.length === 0) {
 								tfoot = $("<tfoot></tfoot>");
@@ -168,55 +179,71 @@ $(document).ready(function() {
 								}
 							}
 						});
+						
 						break;
 						
 						
 						default:
 						elementIndex++;
 						self.subActionIndex = 0;
-						return self.actions["fixTables"](d);
-						break;
-						
+						return self.actions.fixTables(d);
 					}
+					
 					return self.tablesDOM.html();	
 				},
 				"postTables" : function(d) {
 					var tempDOM = $("<div>" + d + "</div>");
 					var tables = tempDOM.find("table");
-					var table;
+					var table, toDelete;
 					
 					var classMapping = {
 						"left": "cellleft",
 						"center": "cellcenter",
 						"right": "cellright"	
-					}
+					};
 					
-					var ps, align, tds;
+					var ps, align, tds, tfoot, cs, newFoot, j;
 					
 					for (var i = 0;i<tables.length;i++) {
 						table = $(tables[i]);
-						table.addClass("cbppTable");
-						table.wrap("<div class='tableContainer'></div>");
-						table.parents("div.tableContainer").first().prepend("<style scoped=\"scoped\">table.cbppTable th {font-size: 1.6rem;line-height: 2rem;}table.cbppTable tfoot td {font-size: 1.1rem;line-height: 1.2rem;}table.cbppTable .cellcenter {text-align: center;	}table.cbppTable .cellleft {text-align: left;}table.cbppTable .cellright {text-align: right;}</style>");
-
-						//strip p tags
-						ps = table.find("p");
-						for (var j = 0; j<ps.length;j++) {
-							align = $(ps[j]).attr("align");
-							if (typeof(classMapping[align] !== "undefined")) {
-								$(ps[j]).parents("td").first().addClass(classMapping[align]);
-								$(ps[j]).contents().unwrap();
+						if (table.children().length > 0) {
+							
+							/*table.addClass("styledTable");*/
+							table.wrap("<div class='scopedStyledTable'><div><div class='tableWrapper'></div></div></div>");
+							table.parents("div.scopedStyledTable").first().prepend("<style scoped> .scopedStyledTable > div { display: inline-block; background-color:#f0f0f0; padding:10px; font-family:'Roboto Condensed', 'Courier New', 'DejaVu Sans Mono', monospace, sans-serif; } .scopedStyledTable div.tableWrapper { padding:10px; background-color:#fff; margin-bottom:10px; } .scopedStyledTable table { border-collapse:collapse; padding:10px; } .scopedStyledTable tr td, .scopedStyledTable tr th { padding:4px; height: 17px; height:1.7rem; font-size:15px; line-height:17px; font-size:1.5rem; line-height:1.7rem; } .scopedStyledTable .footerRight, .scopedStyledTable .footerLeft { font-size:13px; line-height:18px; font-size:1.3rem; line-height:1.8rem; color:#6a6a6a; font-family:\"Roboto\",\"Courier New\",\"DejaVu Sans Mono\",monospace,sans-serif; padding-bottom:5px; } @media(min-width:750px) { .scopedStyledTable .footerRight, .scopedStyledTable .footerLeft { padding-bottom:0px; } .scopedStyledTable .footerRight { float:right; text-align:right; } .scopedStyledTable .footerRight::after { clear:right; } .scopedStyledTable .footerLeft { float:left; text-align:left; } .scopedStyledTable .footerLeft::after { clear:left; } } .scopedStyledTable thead th { text-align:left; } .scopedStyledTable thead tr.figure th { font-family:Roboto; color:#575757; text-transform:uppercase; font-size:14px; line-height:12px; font-size:1.4rem; line-height:1.2rem; font-weight: 300; } .scopedStyledTable thead tr.title th { font-weight:bold; font-size:2.4rem; line-height:2.6rem; padding-bottom: 10px; } .scopedStyledTable tbody tr:first-child td { border-top:2px solid #000; } .scopedStyledTable tr.grey td, .scopedStyledTable tr.grey th { background-color:#f0f0f0; border-bottom:0px; height: 24px; vertical-align:bottom; } .scopedStyledTable .cellcenter { text-align: center; } .scopedStyledTable .cellleft { text-align: left; } .scopedStyledTable .cellright { text-align: right; } .scopedStyledTable table { border: 0px; } .scopedStyledTable table th { border-bottom:0px; } </style>");
+							table.children("thead").children("tr").first().addClass("title");
+							cs = table.children("thead").children("tr").first().children("th").first().attr("colspan");
+							table.children("thead").prepend("<tr class='figure'><th" + (cs>1 ? " colspan=\"" + cs + "\"" : "") + ">TABLE #</th></tr>");
+							table.children("thead").children("tr").last().addClass("grey");
+							
+							//strip p tags
+							ps = table.find("p");
+							for (j = 0; j<ps.length;j++) {
+								align = $(ps[j]).attr("align");
+								if (typeof(classMapping[align] !== "undefined")) {
+									$(ps[j]).parents("td, th").first().addClass(classMapping[align]);
+									$(ps[j]).contents().unwrap();
+								}
 							}
+							
+							tfoot = table.children("tfoot").find("td");
+							newFoot = $("<div class='footerLeft'></div>");
+							
+							for (j = 0;j<tfoot.length;j++) {
+								newFoot.append("<p>" + tfoot.eq(j).html() + "</p>");
+							}
+							table.parents("div.tableWrapper").first().after(newFoot);
+							table.children("tfoot").remove();
+						
+						} else {
+							table.addClass("delete");
 						}
-						
-						
 						
 						
 					}
 					//remove all attributes
 					tds = tempDOM.find("*");
-					console.log(tds);
-					for (var j = 0; j<tds.length;j++) {
+					for (j = 0; j<tds.length;j++) {
 						$(tds[j]).removeAttr("nowrap");
 						$(tds[j]).removeAttr("style");
 						$(tds[j]).removeAttr("width");
@@ -226,9 +253,17 @@ $(document).ready(function() {
 						$(tds[j]).removeAttr("cellspacing");
 						$(tds[j]).removeAttr("cellpadding");
 					}
+					
+					toDelete = tempDOM.find("table.delete");
+					console.log(toDelete);
+					for (j = 0;j<toDelete.length;j++) {
+						toDelete.eq(j).parents("div.scopedStyledTable").first().remove();
+					}
+					
+					
 					return tempDOM.html();
 				}
-			},
+			};
 			this.performOperations = function(startAt) {
 				
 				for (self.actionIndex = startAt; self.actionIndex<inputs.length;self.actionIndex++) {
@@ -242,19 +277,19 @@ $(document).ready(function() {
 					self.subActionIndex = 0;
 					elementIndex = 0;
 				}
-				CKEDITOR.instances["outputText"].setData(self.currentHTML);
-			}
+				CKEDITOR.instances.outputText.setData(self.currentHTML);
+			};
 			this.resume = function() {
 				this.performOperations(this.actionIndex);
-			}
+			};
 		};
 	
 	
 	
 		$("#performOperations").click(function() {
-			var inputs = $(this).parents("div.middleColumn").find('input[type="checkbox"]');
+			var inputs = $(this).parents("div.middleColumn").find('input[type="checkbox"]:checked');
 			var pF = new paperFormatter(inputs);
-			pF.currentHTML = CKEDITOR.instances["inputText"].getData();
+			pF.currentHTML = CKEDITOR.instances.inputText.getData();
 			pF.performOperations(0);
 			
 		});
